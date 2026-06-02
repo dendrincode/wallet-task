@@ -1,0 +1,281 @@
+@baseUrl           = http://localhost:8080
+@userId            = 550e8400-e29b-41d4-a716-446655440000
+@historyUserId     = 550e8400-e29b-41d4-a716-446655440001
+@idempotencyUserId = 550e8400-e29b-41d4-a716-446655440002
+@lowBalanceUserId  = 550e8400-e29b-41d4-a716-446655440003
+@lifecycleUserId   = 550e8400-e29b-41d4-a716-446655440004
+
+# Fixed keys used in the idempotency section so retries carry the same key
+@depositIdempotencyKey = 660e8400-e29b-41d4-a716-446655440000
+@tradeIdempotencyKey   = 660e8400-e29b-41d4-a716-446655440001
+
+
+# ─────────────────────────────────────────────────────────────
+# HEALTH
+# ─────────────────────────────────────────────────────────────
+
+### Health check
+GET {{baseUrl}}/actuator/health
+
+
+# ─────────────────────────────────────────────────────────────
+# 1. WALLET BASICS
+# Run these in order to build up a wallet state.
+# ─────────────────────────────────────────────────────────────
+
+### 1.1  Get wallet — unknown user returns zero balance (wallet not persisted)
+GET {{baseUrl}}/wallets/{{userId}}
+
+###
+
+### 1.2  Deposit funds
+POST {{baseUrl}}/wallets/{{userId}}/deposit
+Content-Type: application/json
+
+{
+  "amount": 100.00,
+  "idempotencyKey": "{{$guid}}",
+  "description": "Trading wallet"
+}
+
+###
+
+### 1.3  Place a trade
+POST {{baseUrl}}/wallets/{{userId}}/trade
+Content-Type: application/json
+
+{
+  "amount": 25.00,
+  "idempotencyKey": "{{$guid}}"
+}
+
+###
+
+### 1.4  Get wallet — balance reflects deposit minus trade, recent transactions listed
+GET {{baseUrl}}/wallets/{{userId}}
+
+
+# ─────────────────────────────────────────────────────────────
+# 2. TRANSACTION HISTORY
+# Run 2.1–2.3 first to create multiple operations, then query.
+# ─────────────────────────────────────────────────────────────
+
+### 2.1  Deposit (first)
+POST {{baseUrl}}/wallets/{{historyUserId}}/deposit
+Content-Type: application/json
+
+{
+  "amount": 150.00,
+  "idempotencyKey": "{{$guid}}"
+}
+
+###
+
+### 2.2  Trade
+POST {{baseUrl}}/wallets/{{historyUserId}}/trade
+Content-Type: application/json
+
+{
+  "amount": 40.00,
+  "idempotencyKey": "{{$guid}}"
+}
+
+###
+
+### 2.3  Deposit (second)
+POST {{baseUrl}}/wallets/{{historyUserId}}/deposit
+Content-Type: application/json
+
+{
+  "amount": 25.00,
+  "idempotencyKey": "{{$guid}}"
+}
+
+###
+
+### 2.4  Get wallet — inline last 10 transactions
+GET {{baseUrl}}/wallets/{{historyUserId}}
+
+###
+
+### 2.5  Paginated history — page 0, 2 items per page
+GET {{baseUrl}}/wallets/{{historyUserId}}/transactions?page=0&size=2
+
+###
+
+### 2.6  Paginated history — page 1 (next page)
+GET {{baseUrl}}/wallets/{{historyUserId}}/transactions?page=1&size=2
+
+
+# ─────────────────────────────────────────────────────────────
+# 3. IDEMPOTENCY
+# Each pair uses a fixed key. Run both requests in a pair and
+# confirm the balance and response are identical on the retry.
+# ─────────────────────────────────────────────────────────────
+
+### 3.1  Deposit — first attempt
+POST {{baseUrl}}/wallets/{{idempotencyUserId}}/deposit
+Content-Type: application/json
+
+{
+  "amount": 100.00,
+  "idempotencyKey": "{{depositIdempotencyKey}}"
+}
+
+###
+
+### 3.2  Deposit — retry with same key (balance must not change, message: "Deposit already processed")
+POST {{baseUrl}}/wallets/{{idempotencyUserId}}/deposit
+Content-Type: application/json
+
+{
+  "amount": 100.00,
+  "idempotencyKey": "{{depositIdempotencyKey}}"
+}
+
+###
+
+### 3.3  Trade — first attempt
+POST {{baseUrl}}/wallets/{{idempotencyUserId}}/trade
+Content-Type: application/json
+
+{
+  "amount": 30.00,
+  "idempotencyKey": "{{tradeIdempotencyKey}}"
+}
+
+###
+
+### 3.4  Trade — retry with same key (balance must not change, message: "Trade already processed")
+POST {{baseUrl}}/wallets/{{idempotencyUserId}}/trade
+Content-Type: application/json
+
+{
+  "amount": 30.00,
+  "idempotencyKey": "{{tradeIdempotencyKey}}"
+}
+
+###
+
+### 3.5  Verify — wallet balance reflects exactly one deposit (100) and one trade (30) = 70
+GET {{baseUrl}}/wallets/{{idempotencyUserId}}
+
+
+# ─────────────────────────────────────────────────────────────
+# 4. ERROR CASES
+# Each request demonstrates a distinct rejection path.
+# ─────────────────────────────────────────────────────────────
+
+### 4.1  Trade — insufficient balance (wallet has no funds, expects 400)
+POST {{baseUrl}}/wallets/{{lowBalanceUserId}}/trade
+Content-Type: application/json
+
+{
+  "amount": 9999.00,
+  "idempotencyKey": "{{$guid}}"
+}
+
+###
+
+### 4.2  Deposit — negative amount (expects 400)
+POST {{baseUrl}}/wallets/{{userId}}/deposit
+Content-Type: application/json
+
+{
+  "amount": -50.00,
+  "idempotencyKey": "{{$guid}}"
+}
+
+###
+
+### 4.3  Deposit — missing idempotency key (expects 400)
+POST {{baseUrl}}/wallets/{{userId}}/deposit
+Content-Type: application/json
+
+{
+  "amount": 50.00
+}
+
+###
+
+### 4.4  Deposit — invalid idempotency key format, not UUID v4 (expects 400)
+POST {{baseUrl}}/wallets/{{userId}}/deposit
+Content-Type: application/json
+
+{
+  "amount": 50.00,
+  "idempotencyKey": "not-a-valid-uuid"
+}
+
+###
+
+### 4.5  Invalid userId in path, not UUID v4 (expects 400)
+GET {{baseUrl}}/wallets/not-a-valid-uuid
+
+
+# ─────────────────────────────────────────────────────────────
+# 5. WALLET MANAGEMENT
+# Covers description updates and the freeze/close lifecycle.
+# Run 5.3 before 5.4 so the wallet exists before freezing.
+# ─────────────────────────────────────────────────────────────
+
+### 5.1  Update description
+PATCH {{baseUrl}}/wallets/{{userId}}
+Content-Type: application/json
+
+{
+  "description": "Main trading account"
+}
+
+###
+
+### 5.2  Clear description (empty string removes it)
+PATCH {{baseUrl}}/wallets/{{userId}}
+Content-Type: application/json
+
+{
+  "description": ""
+}
+
+###
+
+### 5.3  Deposit into lifecycle wallet (creates it)
+POST {{baseUrl}}/wallets/{{lifecycleUserId}}/deposit
+Content-Type: application/json
+
+{
+  "amount": 200.00,
+  "idempotencyKey": "{{$guid}}"
+}
+
+###
+
+### 5.4  Freeze wallet
+POST {{baseUrl}}/wallets/{{lifecycleUserId}}/freeze
+
+###
+
+### 5.5  Deposit on frozen wallet — blocked (expects 4xx)
+POST {{baseUrl}}/wallets/{{lifecycleUserId}}/deposit
+Content-Type: application/json
+
+{
+  "amount": 50.00,
+  "idempotencyKey": "{{$guid}}"
+}
+
+###
+
+### 5.6  Close wallet
+POST {{baseUrl}}/wallets/{{lifecycleUserId}}/close
+
+###
+
+### 5.7  Trade on closed wallet — blocked (expects 4xx)
+POST {{baseUrl}}/wallets/{{lifecycleUserId}}/trade
+Content-Type: application/json
+
+{
+  "amount": 10.00,
+  "idempotencyKey": "{{$guid}}"
+}

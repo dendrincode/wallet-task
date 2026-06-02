@@ -1,0 +1,380 @@
+{
+  "info": {
+    "name": "Wallet Service",
+    "description": "API requests for the Wallet Service — deposits, trades, history, idempotency, error cases, and wallet lifecycle.\n\nImport this file in Postman via File → Import. Variables are pre-set in the collection scope and can be overridden in an Environment.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",              "value": "http://localhost:8080",                       "type": "string" },
+    { "key": "userId",               "value": "550e8400-e29b-41d4-a716-446655440000",        "type": "string" },
+    { "key": "historyUserId",        "value": "550e8400-e29b-41d4-a716-446655440001",        "type": "string" },
+    { "key": "idempotencyUserId",    "value": "550e8400-e29b-41d4-a716-446655440002",        "type": "string" },
+    { "key": "lowBalanceUserId",     "value": "550e8400-e29b-41d4-a716-446655440003",        "type": "string" },
+    { "key": "lifecycleUserId",      "value": "550e8400-e29b-41d4-a716-446655440004",        "type": "string" },
+    { "key": "depositIdempotencyKey","value": "660e8400-e29b-41d4-a716-446655440000",        "type": "string" },
+    { "key": "tradeIdempotencyKey",  "value": "660e8400-e29b-41d4-a716-446655440001",        "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/actuator/health" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Wallet Basics",
+      "description": "Run these in order to build up a wallet state.",
+      "item": [
+        {
+          "name": "1.1 Get wallet — unknown user returns zero balance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/wallets/{{userId}}" }
+          }
+        },
+        {
+          "name": "1.2 Deposit funds",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100.00,\n  \"idempotencyKey\": \"{{$guid}}\",\n  \"description\": \"Trading wallet\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{userId}}/deposit" }
+          }
+        },
+        {
+          "name": "1.3 Place a trade",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 25.00,\n  \"idempotencyKey\": \"{{$guid}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{userId}}/trade" }
+          }
+        },
+        {
+          "name": "1.4 Get wallet — balance reflects deposit minus trade",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/wallets/{{userId}}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Transaction History",
+      "description": "Run 2.1–2.3 first to create multiple operations, then query inline and paginated history.",
+      "item": [
+        {
+          "name": "2.1 Deposit (first)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 150.00,\n  \"idempotencyKey\": \"{{$guid}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{historyUserId}}/deposit" }
+          }
+        },
+        {
+          "name": "2.2 Trade",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 40.00,\n  \"idempotencyKey\": \"{{$guid}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{historyUserId}}/trade" }
+          }
+        },
+        {
+          "name": "2.3 Deposit (second)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 25.00,\n  \"idempotencyKey\": \"{{$guid}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{historyUserId}}/deposit" }
+          }
+        },
+        {
+          "name": "2.4 Get wallet — inline last 10 transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/wallets/{{historyUserId}}" }
+          }
+        },
+        {
+          "name": "2.5 Paginated history — page 0, 2 per page",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wallets/{{historyUserId}}/transactions?page=0&size=2",
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "2" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2.6 Paginated history — page 1",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wallets/{{historyUserId}}/transactions?page=1&size=2",
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "size", "value": "2" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Idempotency",
+      "description": "Each pair uses a fixed key. Run both requests in a pair and confirm the balance and response are identical on the retry.",
+      "item": [
+        {
+          "name": "3.1 Deposit — first attempt",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100.00,\n  \"idempotencyKey\": \"{{depositIdempotencyKey}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{idempotencyUserId}}/deposit" }
+          }
+        },
+        {
+          "name": "3.2 Deposit — retry same key (balance must not change)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100.00,\n  \"idempotencyKey\": \"{{depositIdempotencyKey}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{idempotencyUserId}}/deposit" }
+          }
+        },
+        {
+          "name": "3.3 Trade — first attempt",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 30.00,\n  \"idempotencyKey\": \"{{tradeIdempotencyKey}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{idempotencyUserId}}/trade" }
+          }
+        },
+        {
+          "name": "3.4 Trade — retry same key (balance must not change)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 30.00,\n  \"idempotencyKey\": \"{{tradeIdempotencyKey}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{idempotencyUserId}}/trade" }
+          }
+        },
+        {
+          "name": "3.5 Verify — balance reflects exactly one deposit (100) and one trade (30) = 70",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/wallets/{{idempotencyUserId}}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Error Cases",
+      "description": "Each request demonstrates a distinct rejection path.",
+      "item": [
+        {
+          "name": "4.1 Trade — insufficient balance (expects 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 9999.00,\n  \"idempotencyKey\": \"{{$guid}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{lowBalanceUserId}}/trade" }
+          }
+        },
+        {
+          "name": "4.2 Deposit — negative amount (expects 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": -50.00,\n  \"idempotencyKey\": \"{{$guid}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{userId}}/deposit" }
+          }
+        },
+        {
+          "name": "4.3 Deposit — missing idempotency key (expects 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 50.00\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{userId}}/deposit" }
+          }
+        },
+        {
+          "name": "4.4 Deposit — invalid idempotency key format (expects 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 50.00,\n  \"idempotencyKey\": \"not-a-valid-uuid\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{userId}}/deposit" }
+          }
+        },
+        {
+          "name": "4.5 Invalid userId in path (expects 400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/wallets/not-a-valid-uuid" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Wallet Management",
+      "description": "Description updates and freeze/close lifecycle. Run 5.3 before 5.4 so the wallet exists before freezing.",
+      "item": [
+        {
+          "name": "5.1 Update description",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Main trading account\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{userId}}" }
+          }
+        },
+        {
+          "name": "5.2 Clear description (empty string removes it)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{userId}}" }
+          }
+        },
+        {
+          "name": "5.3 Deposit into lifecycle wallet (creates it)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 200.00,\n  \"idempotencyKey\": \"{{$guid}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{lifecycleUserId}}/deposit" }
+          }
+        },
+        {
+          "name": "5.4 Freeze wallet",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/wallets/{{lifecycleUserId}}/freeze" }
+          }
+        },
+        {
+          "name": "5.5 Deposit on frozen wallet — blocked (expects 4xx)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 50.00,\n  \"idempotencyKey\": \"{{$guid}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{lifecycleUserId}}/deposit" }
+          }
+        },
+        {
+          "name": "5.6 Close wallet",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/wallets/{{lifecycleUserId}}/close" }
+          }
+        },
+        {
+          "name": "5.7 Trade on closed wallet — blocked (expects 4xx)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 10.00,\n  \"idempotencyKey\": \"{{$guid}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/wallets/{{lifecycleUserId}}/trade" }
+          }
+        }
+      ]
+    }
+  ]
+}
