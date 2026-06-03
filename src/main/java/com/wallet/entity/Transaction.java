@@ -8,10 +8,15 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "transactions", indexes = {
-    @Index(name = "idx_transaction_wallet_timestamp", columnList = "wallet_id, timestamp"),
-    @Index(name = "idx_transaction_timestamp", columnList = "timestamp")
-})
+@Table(name = "transactions",
+    indexes = {
+        @Index(name = "idx_transaction_wallet_timestamp", columnList = "wallet_id, timestamp"),
+        @Index(name = "idx_transaction_timestamp", columnList = "timestamp")
+    },
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uq_tx_idempotency_key", columnNames = {"wallet_id", "idempotency_key"})
+    }
+)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -34,7 +39,7 @@ public class Transaction {
     @Column(nullable = false)
     private LocalDateTime timestamp;
 
-    @Column(unique = true, nullable = true, length = 36)
+    @Column(name = "idempotency_key", nullable = true, length = 36)
     private String idempotencyKey;
 
     @Column(nullable = false)

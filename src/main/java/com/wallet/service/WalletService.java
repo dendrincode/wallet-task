@@ -9,6 +9,7 @@ import com.wallet.dto.WalletResponse;
 import com.wallet.entity.Transaction;
 import com.wallet.entity.User;
 import com.wallet.entity.Wallet;
+import com.wallet.entity.CurrencyType;
 import com.wallet.entity.WalletStatus;
 import com.wallet.exception.WalletNotActiveException;
 import com.wallet.exception.WalletNotFoundException;
@@ -49,7 +50,7 @@ public class WalletService {
             }
         });
 
-        Optional<Transaction> existingDeposit = transactionRepository.findByIdempotencyKey(request.getIdempotencyKey());
+        Optional<Transaction> existingDeposit = transactionRepository.findByIdempotencyKeyAndWalletUserUserId(request.getIdempotencyKey(), userId);
         if (existingDeposit.isPresent()) {
             return new OperationResponse("success", existingDeposit.get().getBalanceAfter(),
                 "Deposit already processed");
@@ -70,6 +71,11 @@ public class WalletService {
                 }
                 return walletRepository.save(newWallet);
             });
+
+        // Re-check status on the fetched wallet — reduces the TOCTOU window from the early check.
+        if (wallet.getStatus() != WalletStatus.ACTIVE) {
+            throw new WalletNotActiveException(wallet.getStatus().name());
+        }
 
         LocalDateTime now = LocalDateTime.now();
         wallet.setBalance(wallet.getBalance().add(request.getAmount()));
@@ -102,7 +108,7 @@ public class WalletService {
             }
         });
 
-        Optional<Transaction> existingTrade = transactionRepository.findByIdempotencyKey(request.getIdempotencyKey());
+        Optional<Transaction> existingTrade = transactionRepository.findByIdempotencyKeyAndWalletUserUserId(request.getIdempotencyKey(), userId);
         if (existingTrade.isPresent()) {
             return new OperationResponse("success", existingTrade.get().getBalanceAfter(),
                 "Trade already processed");
@@ -121,6 +127,12 @@ public class WalletService {
                 newWallet.setTransactions(new ArrayList<>());
                 return walletRepository.save(newWallet);
             });
+
+        // Re-check status under the lock — a concurrent freeze/close may have committed
+        // between the early status check above and lock acquisition here.
+        if (wallet.getStatus() != WalletStatus.ACTIVE) {
+            throw new WalletNotActiveException(wallet.getStatus().name());
+        }
 
         BigDecimal newBalance = wallet.getBalance().subtract(request.getAmount());
         if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
@@ -149,9 +161,13 @@ public class WalletService {
 
     @Transactional(readOnly = true)
     public WalletResponse getWallet(String userId) {
-        Wallet wallet = walletRepository.findByUserUserId(userId)
-            .orElseGet(() -> new Wallet(new User(userId)));
-        return mapToWalletResponse(wallet);
+        return walletRepository.findByUserUserId(userId)
+            .map(this::mapToWalletResponse)
+            .orElseGet(() -> new WalletResponse(
+                null, userId, BigDecimal.ZERO, CurrencyType.EUR.toString(),
+                WalletStatus.ACTIVE.toString(), BigDecimal.ZERO, BigDecimal.ZERO,
+                null, null, null, null, List.of()
+            ));
     }
 
     public WalletResponse updateWallet(String userId, UpdateWalletRequest request) {

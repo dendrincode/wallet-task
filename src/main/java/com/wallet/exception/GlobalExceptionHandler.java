@@ -1,6 +1,7 @@
 package com.wallet.exception;
 
 import com.wallet.dto.ErrorResponse;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -149,6 +150,30 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         errorResponse.setDetails(details.toString());
         errorResponse.setTimestamp(LocalDateTime.now());
         
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(
+            ConstraintViolationException ex,
+            WebRequest request) {
+        log.error("Constraint violation: {}", ex.getMessage());
+
+        StringBuilder details = new StringBuilder();
+        ex.getConstraintViolations().forEach(v ->
+            details.append(v.getPropertyPath()).append(": ").append(v.getMessage()).append("; ")
+        );
+
+        ErrorResponse errorResponse = new ErrorResponse(
+            "Validation Failed",
+            "Request validation failed",
+            "VALIDATION_ERROR",
+            HttpStatus.BAD_REQUEST.value()
+        );
+        errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
+        errorResponse.setDetails(details.toString());
+        errorResponse.setTimestamp(LocalDateTime.now());
+
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 

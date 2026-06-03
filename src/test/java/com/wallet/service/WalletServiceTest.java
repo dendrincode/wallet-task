@@ -80,7 +80,7 @@ public class WalletServiceTest {
 
         when(walletRepository.findByUserUserId(userId)).thenReturn(Optional.of(wallet));
         when(walletRepository.save(any(Wallet.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(transactionRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+        when(transactionRepository.findByIdempotencyKeyAndWalletUserUserId(any(), any())).thenReturn(Optional.empty());
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OperationResponse response = walletService.deposit(userId, new DepositRequest(depositAmount, uuid(), userId));
@@ -102,7 +102,7 @@ public class WalletServiceTest {
         when(userRepository.findById(userId)).thenReturn(Optional.empty());
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(walletRepository.save(any(Wallet.class))).thenReturn(newWallet);
-        when(transactionRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+        when(transactionRepository.findByIdempotencyKeyAndWalletUserUserId(any(), any())).thenReturn(Optional.empty());
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OperationResponse response = walletService.deposit(userId, new DepositRequest(depositAmount, uuid(), userId));
@@ -140,7 +140,7 @@ public class WalletServiceTest {
             LocalDateTime.now(), idempotencyKey, new BigDecimal("100.00")
         );
 
-        when(transactionRepository.findByIdempotencyKey(idempotencyKey))
+        when(transactionRepository.findByIdempotencyKeyAndWalletUserUserId(eq(idempotencyKey), eq(userId)))
             .thenReturn(Optional.of(existingTransaction));
 
         OperationResponse response = walletService.deposit(userId,
@@ -163,7 +163,7 @@ public class WalletServiceTest {
 
         when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
         when(walletRepository.save(any(Wallet.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(transactionRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+        when(transactionRepository.findByIdempotencyKeyAndWalletUserUserId(any(), any())).thenReturn(Optional.empty());
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OperationResponse response = walletService.trade(userId, new TradeRequest(tradeAmount, uuid()));
@@ -182,7 +182,7 @@ public class WalletServiceTest {
         Wallet wallet = createTestWallet(userId, new BigDecimal("50.00"));
 
         when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
-        when(transactionRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+        when(transactionRepository.findByIdempotencyKeyAndWalletUserUserId(any(), any())).thenReturn(Optional.empty());
 
         OperationResponse response = walletService.trade(userId, new TradeRequest(tradeAmount, uuid()));
 
@@ -218,7 +218,7 @@ public class WalletServiceTest {
         when(userRepository.findById(userId)).thenReturn(Optional.empty());
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(walletRepository.save(any(Wallet.class))).thenReturn(newWallet);
-        when(transactionRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+        when(transactionRepository.findByIdempotencyKeyAndWalletUserUserId(any(), any())).thenReturn(Optional.empty());
 
         OperationResponse response = walletService.trade(userId, new TradeRequest(tradeAmount, uuid()));
 
@@ -238,7 +238,7 @@ public class WalletServiceTest {
             LocalDateTime.now(), idempotencyKey, new BigDecimal("150.00")
         );
 
-        when(transactionRepository.findByIdempotencyKey(idempotencyKey))
+        when(transactionRepository.findByIdempotencyKeyAndWalletUserUserId(eq(idempotencyKey), eq(userId)))
             .thenReturn(Optional.of(existingTransaction));
 
         OperationResponse response = walletService.trade(userId,
@@ -298,8 +298,6 @@ public class WalletServiceTest {
         String userId = "nonExistent";
 
         when(walletRepository.findByUserUserId(userId)).thenReturn(Optional.empty());
-        when(transactionRepository.findByWalletUserIdOrderByTimestampDescIdDesc(eq(userId), any(Pageable.class)))
-            .thenReturn(new PageImpl<>(List.of()));
 
         WalletResponse response = walletService.getWallet(userId);
 
@@ -318,7 +316,7 @@ public class WalletServiceTest {
 
         when(walletRepository.findByUserUserId(userId)).thenReturn(Optional.of(wallet));
         when(walletRepository.save(any(Wallet.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(transactionRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+        when(transactionRepository.findByIdempotencyKeyAndWalletUserUserId(any(), any())).thenReturn(Optional.empty());
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OperationResponse response1 = walletService.deposit(userId, new DepositRequest(new BigDecimal("100.00"), uuid(), userId));
@@ -344,7 +342,7 @@ public class WalletServiceTest {
             wallet.setBalance(w.getBalance());
             return w;
         });
-        when(transactionRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+        when(transactionRepository.findByIdempotencyKeyAndWalletUserUserId(any(), any())).thenReturn(Optional.empty());
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OperationResponse deposit = walletService.deposit(userId, new DepositRequest(new BigDecimal("500.00"), uuid(), userId));

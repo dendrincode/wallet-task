@@ -12,7 +12,7 @@ import java.util.Optional;
 
 @Repository
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
-    Optional<Transaction> findByIdempotencyKey(String idempotencyKey);
+    Optional<Transaction> findByIdempotencyKeyAndWalletUserUserId(String idempotencyKey, String userId);
 
     @Query("SELECT t FROM Transaction t WHERE t.wallet.user.userId = :userId ORDER BY t.timestamp DESC, t.id DESC")
     Page<Transaction> findByWalletUserIdOrderByTimestampDescIdDesc(@Param("userId") String userId, Pageable pageable);

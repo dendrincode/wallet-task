@@ -58,11 +58,12 @@ CREATE TABLE transactions (
     type            VARCHAR(10)    NOT NULL,
     amount          DECIMAL(19, 2) NOT NULL,
     timestamp       TIMESTAMP      NOT NULL,
-    idempotency_key VARCHAR(36)    UNIQUE,
+    idempotency_key VARCHAR(36),
     balance_after   DECIMAL(19, 2) NOT NULL,
 
-    CONSTRAINT pk_transactions     PRIMARY KEY (id),
-    CONSTRAINT fk_transaction_wallet FOREIGN KEY (wallet_id) REFERENCES wallets (wallet_id),
+    CONSTRAINT pk_transactions        PRIMARY KEY (id),
+    CONSTRAINT fk_transaction_wallet  FOREIGN KEY (wallet_id) REFERENCES wallets (wallet_id),
+    CONSTRAINT uq_tx_idempotency_key  UNIQUE (wallet_id, idempotency_key),
     CONSTRAINT chk_tx_type   CHECK (type   IN ('DEPOSIT', 'TRADE')),
     CONSTRAINT chk_tx_amount CHECK (amount > 0)
 );
