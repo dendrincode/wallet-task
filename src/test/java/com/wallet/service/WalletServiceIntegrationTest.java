@@ -128,6 +128,26 @@ public class WalletServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("Integration: Same idempotency key used by two users is treated independently")
+    void testIdempotencyKeyIsScopedToUser() {
+        String userA = uuid();
+        String userB = uuid();
+        String sharedKey = uuid();
+
+        var responseA = walletService.deposit(userA, new DepositRequest(new BigDecimal("100.00"), sharedKey, null));
+        assertEquals("success", responseA.getStatus());
+        assertEquals(new BigDecimal("100.00"), responseA.getNewBalance());
+
+        // User B uses the same idempotency key — must be treated as a fresh transaction, not A's replay
+        var responseB = walletService.deposit(userB, new DepositRequest(new BigDecimal("50.00"), sharedKey, null));
+        assertEquals("success", responseB.getStatus());
+        assertEquals(new BigDecimal("50.00"), responseB.getNewBalance());
+
+        assertEquals(1, walletService.getTransactions(userA, 0, 10).getTotalElements());
+        assertEquals(1, walletService.getTransactions(userB, 0, 10).getTotalElements());
+    }
+
+    @Test
     @DisplayName("Integration: Large number of operations")
     void testManyOperations() {
         String userId = uuid();
