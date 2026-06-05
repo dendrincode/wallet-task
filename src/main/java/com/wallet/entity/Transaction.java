@@ -1,57 +1,50 @@
 package com.wallet.entity;
 
-import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "transactions",
-    indexes = {
-        @Index(name = "idx_transaction_wallet_timestamp", columnList = "wallet_id, timestamp"),
-        @Index(name = "idx_transaction_timestamp", columnList = "timestamp")
-    },
-    uniqueConstraints = {
-        @UniqueConstraint(name = "uq_tx_idempotency_key", columnNames = {"wallet_id", "idempotency_key"})
-    }
-)
+@Table("transactions")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class Transaction {
+
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @Column("id")
+    private String id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "wallet_id", nullable = false)
-    private Wallet wallet;
+    @Column("wallet_id")
+    private String walletId;
 
-    @Column(nullable = false)
-    @Enumerated(EnumType.STRING)
+    @Column("type")
     private TransactionType type;
 
-    @Column(nullable = false, precision = 19, scale = 2)
+    @Column("amount")
     private BigDecimal amount;
 
-    @Column(nullable = false)
+    @Column("timestamp")
     private LocalDateTime timestamp;
 
-    @Column(name = "idempotency_key", nullable = true, length = 36)
+    @Column("idempotency_key")
     private String idempotencyKey;
 
-    @Column(nullable = false)
+    @Column("balance_after")
     private BigDecimal balanceAfter;
 
     public enum TransactionType {
         DEPOSIT, TRADE
     }
 
-    public Transaction(Wallet wallet, TransactionType type, BigDecimal amount, 
+    public Transaction(String walletId, TransactionType type, BigDecimal amount,
                        LocalDateTime timestamp, String idempotencyKey, BigDecimal balanceAfter) {
-        this.wallet = wallet;
+        this.walletId = walletId;
         this.type = type;
         this.amount = amount;
         this.timestamp = timestamp;

@@ -27,7 +27,7 @@ public class WalletResponse {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class TransactionHistory {
-        private Long transactionId;
+        private String transactionId;
         private String type;
         private BigDecimal amount;
         private String timestamp;

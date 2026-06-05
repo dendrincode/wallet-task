@@ -17,18 +17,15 @@ import com.wallet.repository.TransactionRepository;
 import com.wallet.repository.UserRepository;
 import com.wallet.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
+import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -38,240 +35,217 @@ public class WalletService {
     private final WalletRepository walletRepository;
     private final TransactionRepository transactionRepository;
     private final UserRepository userRepository;
+    private final R2dbcEntityTemplate r2dbcTemplate;
 
-    /**
-     * Deposit funds into a wallet with idempotency support.
-     * Retried requests with the same idempotency key will not be applied twice.
-     */
-    public OperationResponse deposit(String userId, DepositRequest request) {
-        walletRepository.findByUserUserId(userId).ifPresent(wallet -> {
-            if (wallet.getStatus() != WalletStatus.ACTIVE) {
-                throw new WalletNotActiveException(wallet.getStatus().name());
-            }
-        });
-
-        Optional<Transaction> existingDeposit = transactionRepository.findByIdempotencyKeyAndWalletUserUserId(request.getIdempotencyKey(), userId);
-        if (existingDeposit.isPresent()) {
-            return new OperationResponse("success", existingDeposit.get().getBalanceAfter(),
-                "Deposit already processed");
-        }
-
+    public Mono<OperationResponse> deposit(String userId, DepositRequest request) {
         if (request.getAmount() == null || request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            return new OperationResponse("error", null, "Amount must be greater than zero");
+            return Mono.just(new OperationResponse("error", null, "Amount must be greater than zero"));
         }
-
-        Wallet wallet = walletRepository.findByUserUserId(userId)
-            .orElseGet(() -> {
-                User user = userRepository.findById(userId)
-                    .orElseGet(() -> userRepository.save(new User(userId)));
-                Wallet newWallet = new Wallet(user);
-                newWallet.setTransactions(new ArrayList<>());
-                if (request.getDescription() != null && !request.getDescription().trim().isEmpty()) {
-                    newWallet.setDescription(request.getDescription().trim());
-                }
-                return walletRepository.save(newWallet);
-            });
-
-        // Re-check status on the fetched wallet — reduces the TOCTOU window from the early check.
-        if (wallet.getStatus() != WalletStatus.ACTIVE) {
-            throw new WalletNotActiveException(wallet.getStatus().name());
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        wallet.setBalance(wallet.getBalance().add(request.getAmount()));
-        wallet.setTotalDeposited(wallet.getTotalDeposited().add(request.getAmount()));
-        wallet.setLastTransactionAt(now);
-        wallet = walletRepository.save(wallet);
-
-        transactionRepository.save(new Transaction(
-            wallet,
-            Transaction.TransactionType.DEPOSIT,
-            request.getAmount(),
-            now,
-            request.getIdempotencyKey(),
-            wallet.getBalance()
-        ));
-
-        return new OperationResponse("success", wallet.getBalance(), "Deposit completed");
+        return transactionRepository.findByIdempotencyKeyAndUserId(request.getIdempotencyKey(), userId)
+                .map(existing -> new OperationResponse("success", existing.getBalanceAfter(), "Deposit already processed"))
+                .switchIfEmpty(Mono.defer(() -> getOrCreateWallet(userId, request.getDescription())
+                        .flatMap(wallet -> {
+                            if (wallet.getStatus() != WalletStatus.ACTIVE) {
+                                return Mono.error(new WalletNotActiveException(wallet.getStatus().name()));
+                            }
+                            LocalDateTime now = LocalDateTime.now();
+                            wallet.setBalance(wallet.getBalance().add(request.getAmount()));
+                            wallet.setTotalDeposited(wallet.getTotalDeposited().add(request.getAmount()));
+                            wallet.setLastTransactionAt(now);
+                            wallet.setUpdatedAt(now);
+                            return walletRepository.save(wallet)
+                                    .flatMap(saved -> {
+                                        Transaction tx = new Transaction(
+                                                saved.getWalletId(),
+                                                Transaction.TransactionType.DEPOSIT,
+                                                request.getAmount(),
+                                                now,
+                                                request.getIdempotencyKey(),
+                                                saved.getBalance()
+                                        );
+                                        tx.setId(UUID.randomUUID().toString());
+                                        return r2dbcTemplate.insert(tx)
+                                                .thenReturn(new OperationResponse("success", saved.getBalance(), "Deposit completed"));
+                                    });
+                        })
+                ));
     }
 
-    /**
-     * Debit funds for a trade with idempotency support.
-     * Uses pessimistic locking to prevent concurrent overdrafts.
-     * Trade is rejected if it would make balance negative.
-     * Retried requests with the same idempotency key will not be applied twice.
-     */
-    public OperationResponse trade(String userId, TradeRequest request) {
-        walletRepository.findByUserUserId(userId).ifPresent(wallet -> {
-            if (wallet.getStatus() != WalletStatus.ACTIVE) {
-                throw new WalletNotActiveException(wallet.getStatus().name());
-            }
-        });
-
-        Optional<Transaction> existingTrade = transactionRepository.findByIdempotencyKeyAndWalletUserUserId(request.getIdempotencyKey(), userId);
-        if (existingTrade.isPresent()) {
-            return new OperationResponse("success", existingTrade.get().getBalanceAfter(),
-                "Trade already processed");
-        }
-
+    public Mono<OperationResponse> trade(String userId, TradeRequest request) {
         if (request.getAmount() == null || request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            return new OperationResponse("error", null, "Amount must be greater than zero");
+            return Mono.just(new OperationResponse("error", null, "Amount must be greater than zero"));
         }
-
-        // Pessimistic write lock — prevents concurrent overdrafts
-        Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
-            .orElseGet(() -> {
-                User user = userRepository.findById(userId)
-                    .orElseGet(() -> userRepository.save(new User(userId)));
-                Wallet newWallet = new Wallet(user);
-                newWallet.setTransactions(new ArrayList<>());
-                return walletRepository.save(newWallet);
-            });
-
-        // Re-check status under the lock — a concurrent freeze/close may have committed
-        // between the early status check above and lock acquisition here.
-        if (wallet.getStatus() != WalletStatus.ACTIVE) {
-            throw new WalletNotActiveException(wallet.getStatus().name());
-        }
-
-        BigDecimal newBalance = wallet.getBalance().subtract(request.getAmount());
-        if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
-            return new OperationResponse("error", wallet.getBalance(),
-                "Insufficient balance for trade. Required: " + request.getAmount() +
-                ", Available: " + wallet.getBalance());
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        wallet.setBalance(newBalance);
-        wallet.setTotalTraded(wallet.getTotalTraded().add(request.getAmount()));
-        wallet.setLastTransactionAt(now);
-        wallet = walletRepository.save(wallet);
-
-        transactionRepository.save(new Transaction(
-            wallet,
-            Transaction.TransactionType.TRADE,
-            request.getAmount(),
-            now,
-            request.getIdempotencyKey(),
-            wallet.getBalance()
-        ));
-
-        return new OperationResponse("success", wallet.getBalance(), "Trade completed");
+        return transactionRepository.findByIdempotencyKeyAndUserId(request.getIdempotencyKey(), userId)
+                .map(existing -> new OperationResponse("success", existing.getBalanceAfter(), "Trade already processed"))
+                .switchIfEmpty(Mono.defer(() -> walletRepository.findByUserIdForUpdate(userId)
+                        .switchIfEmpty(Mono.defer(() -> createWallet(userId, null)))
+                        .flatMap(wallet -> {
+                            if (wallet.getStatus() != WalletStatus.ACTIVE) {
+                                return Mono.error(new WalletNotActiveException(wallet.getStatus().name()));
+                            }
+                            BigDecimal newBalance = wallet.getBalance().subtract(request.getAmount());
+                            if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
+                                return Mono.just(new OperationResponse("error", wallet.getBalance(),
+                                        "Insufficient balance for trade. Required: " + request.getAmount() +
+                                        ", Available: " + wallet.getBalance()));
+                            }
+                            LocalDateTime now = LocalDateTime.now();
+                            wallet.setBalance(newBalance);
+                            wallet.setTotalTraded(wallet.getTotalTraded().add(request.getAmount()));
+                            wallet.setLastTransactionAt(now);
+                            wallet.setUpdatedAt(now);
+                            return walletRepository.save(wallet)
+                                    .flatMap(saved -> {
+                                        Transaction tx = new Transaction(
+                                                saved.getWalletId(),
+                                                Transaction.TransactionType.TRADE,
+                                                request.getAmount(),
+                                                now,
+                                                request.getIdempotencyKey(),
+                                                saved.getBalance()
+                                        );
+                                        tx.setId(UUID.randomUUID().toString());
+                                        return r2dbcTemplate.insert(tx)
+                                                .thenReturn(new OperationResponse("success", saved.getBalance(), "Trade completed"));
+                                    });
+                        })
+                ));
     }
 
     @Transactional(readOnly = true)
-    public WalletResponse getWallet(String userId) {
-        return walletRepository.findByUserUserId(userId)
-            .map(this::mapToWalletResponse)
-            .orElseGet(() -> new WalletResponse(
-                null, userId, BigDecimal.ZERO, CurrencyType.EUR.toString(),
-                WalletStatus.ACTIVE.toString(), BigDecimal.ZERO, BigDecimal.ZERO,
-                null, null, null, null, List.of()
-            ));
+    public Mono<WalletResponse> getWallet(String userId) {
+        return walletRepository.findByUserId(userId)
+                .flatMap(wallet -> transactionRepository.findByUserIdPaged(userId, 10, 0)
+                        .collectList()
+                        .map(txs -> mapToWalletResponse(wallet, txs)))
+                .switchIfEmpty(Mono.just(new WalletResponse(
+                        null, userId, BigDecimal.ZERO, CurrencyType.EUR.toString(),
+                        WalletStatus.ACTIVE.toString(), BigDecimal.ZERO, BigDecimal.ZERO,
+                        null, null, null, null, List.of()
+                )));
     }
 
-    public WalletResponse updateWallet(String userId, UpdateWalletRequest request) {
-        Wallet wallet = walletRepository.findByUserUserId(userId)
-            .orElseGet(() -> {
-                User user = userRepository.findById(userId)
-                    .orElseGet(() -> userRepository.save(new User(userId)));
-                Wallet newWallet = new Wallet(user);
-                newWallet.setTransactions(new ArrayList<>());
-                return walletRepository.save(newWallet);
-            });
-
-        if (request.getDescription() != null) {
-            wallet.setDescription(request.getDescription().trim().isEmpty() ? null : request.getDescription().trim());
-            wallet = walletRepository.save(wallet);
-        }
-
-        return mapToWalletResponse(wallet);
+    public Mono<WalletResponse> updateWallet(String userId, UpdateWalletRequest request) {
+        return getOrCreateWallet(userId, null)
+                .flatMap(wallet -> {
+                    if (request.getDescription() != null) {
+                        wallet.setDescription(request.getDescription().trim().isEmpty()
+                                ? null : request.getDescription().trim());
+                        wallet.setUpdatedAt(LocalDateTime.now());
+                        return walletRepository.save(wallet);
+                    }
+                    return Mono.just(wallet);
+                })
+                .flatMap(wallet -> transactionRepository.findByUserIdPaged(userId, 10, 0)
+                        .collectList()
+                        .map(txs -> mapToWalletResponse(wallet, txs)));
     }
 
     @Transactional(readOnly = true)
-    public TransactionPageResponse getTransactions(String userId, int page, int size) {
-        Page<Transaction> txPage = transactionRepository
-                .findByWalletUserIdOrderByTimestampDescIdDesc(userId, PageRequest.of(page, size));
+    public Mono<TransactionPageResponse> getTransactions(String userId, int page, int size) {
+        long offset = (long) page * size;
+        return walletRepository.findByUserId(userId)
+                .flatMap(wallet -> Mono.zip(
+                        transactionRepository.findByUserIdPaged(userId, size, offset).collectList(),
+                        transactionRepository.countByUserId(userId)
+                ).map(tuple -> {
+                    List<Transaction> txs = tuple.getT1();
+                    long total = tuple.getT2();
+                    int totalPages = (int) Math.ceil((double) total / size);
+                    List<TransactionPageResponse.TransactionItem> items = txs.stream()
+                            .map(tx -> new TransactionPageResponse.TransactionItem(
+                                    tx.getId(),
+                                    tx.getType().toString(),
+                                    tx.getAmount(),
+                                    tx.getTimestamp().toString(),
+                                    tx.getBalanceAfter()
+                            ))
+                            .toList();
+                    return new TransactionPageResponse(userId, items, page, size, total, totalPages, (page + 1) < totalPages);
+                }))
+                .switchIfEmpty(Mono.just(new TransactionPageResponse(userId, List.of(), page, size, 0, 0, false)));
+    }
 
-        List<TransactionPageResponse.TransactionItem> items = txPage.getContent().stream()
-                .map(tx -> new TransactionPageResponse.TransactionItem(
+    public Mono<WalletResponse> freezeWallet(String userId) {
+        return walletRepository.findByUserId(userId)
+                .switchIfEmpty(Mono.error(new WalletNotFoundException("Wallet not found for user: " + userId)))
+                .flatMap(wallet -> {
+                    if (wallet.getStatus() == WalletStatus.CLOSED) {
+                        return Mono.error(new WalletNotActiveException("CLOSED"));
+                    }
+                    if (wallet.getStatus() == WalletStatus.FROZEN) {
+                        return Mono.error(new WalletNotActiveException("FROZEN"));
+                    }
+                    wallet.setStatus(WalletStatus.FROZEN);
+                    wallet.setUpdatedAt(LocalDateTime.now());
+                    return walletRepository.save(wallet);
+                })
+                .flatMap(wallet -> transactionRepository.findByUserIdPaged(userId, 10, 0)
+                        .collectList()
+                        .map(txs -> mapToWalletResponse(wallet, txs)));
+    }
+
+    public Mono<WalletResponse> closeWallet(String userId) {
+        return walletRepository.findByUserId(userId)
+                .switchIfEmpty(Mono.error(new WalletNotFoundException("Wallet not found for user: " + userId)))
+                .flatMap(wallet -> {
+                    if (wallet.getStatus() == WalletStatus.CLOSED) {
+                        return Mono.error(new WalletNotActiveException("CLOSED"));
+                    }
+                    wallet.setStatus(WalletStatus.CLOSED);
+                    wallet.setUpdatedAt(LocalDateTime.now());
+                    return walletRepository.save(wallet);
+                })
+                .flatMap(wallet -> transactionRepository.findByUserIdPaged(userId, 10, 0)
+                        .collectList()
+                        .map(txs -> mapToWalletResponse(wallet, txs)));
+    }
+
+    private Mono<Wallet> getOrCreateWallet(String userId, String description) {
+        return walletRepository.findByUserId(userId)
+                .switchIfEmpty(Mono.defer(() -> createWallet(userId, description)));
+    }
+
+    private Mono<Wallet> createWallet(String userId, String description) {
+        return userRepository.findById(userId)
+                .switchIfEmpty(Mono.defer(() -> r2dbcTemplate.insert(new User(userId))))
+                .flatMap(user -> {
+                    Wallet newWallet = new Wallet(userId);
+                    newWallet.setWalletId(UUID.randomUUID().toString());
+                    LocalDateTime now = LocalDateTime.now();
+                    newWallet.setCreatedAt(now);
+                    newWallet.setUpdatedAt(now);
+                    if (description != null && !description.trim().isEmpty()) {
+                        newWallet.setDescription(description.trim());
+                    }
+                    return r2dbcTemplate.insert(newWallet);
+                });
+    }
+
+    private WalletResponse mapToWalletResponse(Wallet wallet, List<Transaction> txs) {
+        List<WalletResponse.TransactionHistory> history = txs.stream()
+                .map(tx -> new WalletResponse.TransactionHistory(
                         tx.getId(),
                         tx.getType().toString(),
                         tx.getAmount(),
                         tx.getTimestamp().toString(),
                         tx.getBalanceAfter()
                 ))
-                .collect(Collectors.toList());
-
-        return new TransactionPageResponse(
-                userId,
-                items,
-                txPage.getNumber(),
-                txPage.getSize(),
-                txPage.getTotalElements(),
-                txPage.getTotalPages(),
-                txPage.hasNext()
-        );
-    }
-
-    public WalletResponse freezeWallet(String userId) {
-        Wallet wallet = walletRepository.findByUserUserId(userId)
-                .orElseThrow(() -> new WalletNotFoundException("Wallet not found for user: " + userId));
-
-        if (wallet.getStatus() == WalletStatus.CLOSED) {
-            throw new WalletNotActiveException("CLOSED");
-        }
-        if (wallet.getStatus() == WalletStatus.FROZEN) {
-            throw new WalletNotActiveException("FROZEN");
-        }
-
-        wallet.setStatus(WalletStatus.FROZEN);
-        walletRepository.save(wallet);
-        return mapToWalletResponse(wallet);
-    }
-
-    public WalletResponse closeWallet(String userId) {
-        Wallet wallet = walletRepository.findByUserUserId(userId)
-                .orElseThrow(() -> new WalletNotFoundException("Wallet not found for user: " + userId));
-
-        if (wallet.getStatus() == WalletStatus.CLOSED) {
-            throw new WalletNotActiveException("CLOSED");
-        }
-
-        wallet.setStatus(WalletStatus.CLOSED);
-        walletRepository.save(wallet);
-        return mapToWalletResponse(wallet);
-    }
-
-    private WalletResponse mapToWalletResponse(Wallet wallet) {
-        String userId = wallet.getUser().getUserId();
-
-        List<WalletResponse.TransactionHistory> history = transactionRepository
-                .findByWalletUserIdOrderByTimestampDescIdDesc(userId, PageRequest.of(0, 10))
-                .getContent()
-                .stream()
-                .map(tx -> new WalletResponse.TransactionHistory(
-                    tx.getId(),
-                    tx.getType().toString(),
-                    tx.getAmount(),
-                    tx.getTimestamp().toString(),
-                    tx.getBalanceAfter()
-                ))
-                .collect(Collectors.toList());
+                .toList();
 
         return new WalletResponse(
-            wallet.getWalletId(),
-            userId,
-            wallet.getBalance(),
-            wallet.getCurrency().toString(),
-            wallet.getStatus().toString(),
-            wallet.getTotalDeposited(),
-            wallet.getTotalTraded(),
-            wallet.getCreatedAt() != null ? wallet.getCreatedAt().toString() : null,
-            wallet.getUpdatedAt() != null ? wallet.getUpdatedAt().toString() : null,
-            wallet.getLastTransactionAt() != null ? wallet.getLastTransactionAt().toString() : null,
-            wallet.getDescription(),
-            history
+                wallet.getWalletId(),
+                wallet.getUserId(),
+                wallet.getBalance(),
+                wallet.getCurrency().toString(),
+                wallet.getStatus().toString(),
+                wallet.getTotalDeposited(),
+                wallet.getTotalTraded(),
+                wallet.getCreatedAt() != null ? wallet.getCreatedAt().toString() : null,
+                wallet.getUpdatedAt() != null ? wallet.getUpdatedAt().toString() : null,
+                wallet.getLastTransactionAt() != null ? wallet.getLastTransactionAt().toString() : null,
+                wallet.getDescription(),
+                history
         );
     }
 }

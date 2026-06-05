@@ -3,199 +3,106 @@ package com.wallet.exception;
 import com.wallet.dto.ErrorResponse;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.context.request.WebRequest;
-import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import org.springframework.web.bind.support.WebExchangeBindException;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 
 @Slf4j
 @ControllerAdvice
-public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+public class GlobalExceptionHandler {
 
-    /**
-     * Handle WalletException - Base exception for wallet service
-     */
-    @ExceptionHandler(WalletException.class)
-    public ResponseEntity<ErrorResponse> handleWalletException(
-            WalletException ex,
-            WebRequest request) {
-        log.error("Wallet exception occurred: {}", ex.getMessage(), ex);
-        
-        ErrorResponse errorResponse = new ErrorResponse(
-            "Wallet Error",
-            ex.getMessage(),
-            ex.getErrorCode(),
-            HttpStatus.BAD_REQUEST.value()
-        );
-        errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
-        errorResponse.setTimestamp(LocalDateTime.now());
-        
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
-    }
-
-    /**
-     * Handle InsufficientBalanceException
-     */
-    @ExceptionHandler(InsufficientBalanceException.class)
-    public ResponseEntity<ErrorResponse> handleInsufficientBalanceException(
-            InsufficientBalanceException ex,
-            WebRequest request) {
-        log.error("Insufficient balance: {}", ex.getMessage());
-        
-        ErrorResponse errorResponse = new ErrorResponse(
-            "Insufficient Balance",
-            ex.getMessage(),
-            "INSUFFICIENT_BALANCE",
-            HttpStatus.PAYMENT_REQUIRED.value()
-        );
-        errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
-        errorResponse.setTimestamp(LocalDateTime.now());
-        
-        return new ResponseEntity<>(errorResponse, HttpStatus.PAYMENT_REQUIRED);
-    }
-
-    /**
-     * Handle InvalidAmountException
-     */
-    @ExceptionHandler(InvalidAmountException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidAmountException(
-            InvalidAmountException ex,
-            WebRequest request) {
-        log.error("Invalid amount: {}", ex.getMessage());
-        
-        ErrorResponse errorResponse = new ErrorResponse(
-            "Invalid Amount",
-            ex.getMessage(),
-            "INVALID_AMOUNT",
-            HttpStatus.BAD_REQUEST.value()
-        );
-        errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
-        errorResponse.setTimestamp(LocalDateTime.now());
-        
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
-    }
-
-    /**
-     * Handle WalletNotActiveException
-     */
     @ExceptionHandler(WalletNotActiveException.class)
-    public ResponseEntity<ErrorResponse> handleWalletNotActiveException(
-            WalletNotActiveException ex,
-            WebRequest request) {
+    public Mono<ResponseEntity<ErrorResponse>> handleWalletNotActiveException(
+            WalletNotActiveException ex, ServerWebExchange exchange) {
         log.error("Wallet not active: {}", ex.getMessage());
-
-        ErrorResponse errorResponse = new ErrorResponse(
-            "Wallet Not Active",
-            ex.getMessage(),
-            "WALLET_NOT_ACTIVE",
-            HttpStatus.CONFLICT.value()
-        );
-        errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
-        errorResponse.setTimestamp(LocalDateTime.now());
-
-        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+        return Mono.just(new ResponseEntity<>(errorResponse(
+                "Wallet Not Active", ex.getMessage(), "WALLET_NOT_ACTIVE",
+                HttpStatus.CONFLICT.value(), null, exchange), HttpStatus.CONFLICT));
     }
 
-    /**
-     * Handle WalletNotFoundException
-     */
     @ExceptionHandler(WalletNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleWalletNotFoundException(
-            WalletNotFoundException ex,
-            WebRequest request) {
+    public Mono<ResponseEntity<ErrorResponse>> handleWalletNotFoundException(
+            WalletNotFoundException ex, ServerWebExchange exchange) {
         log.error("Wallet not found: {}", ex.getMessage());
-        
-        ErrorResponse errorResponse = new ErrorResponse(
-            "Not Found",
-            ex.getMessage(),
-            "WALLET_NOT_FOUND",
-            HttpStatus.NOT_FOUND.value()
-        );
-        errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
-        errorResponse.setTimestamp(LocalDateTime.now());
-        
-        return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
+        return Mono.just(new ResponseEntity<>(errorResponse(
+                "Not Found", ex.getMessage(), "WALLET_NOT_FOUND",
+                HttpStatus.NOT_FOUND.value(), null, exchange), HttpStatus.NOT_FOUND));
     }
 
-    /**
-     * Handle MethodArgumentNotValidException for request validation errors
-     */
-    @Override
-    protected ResponseEntity<Object> handleMethodArgumentNotValid(
-            MethodArgumentNotValidException ex,
-            HttpHeaders headers,
-            HttpStatusCode status,
-            WebRequest request) {
+    @ExceptionHandler(InsufficientBalanceException.class)
+    public Mono<ResponseEntity<ErrorResponse>> handleInsufficientBalanceException(
+            InsufficientBalanceException ex, ServerWebExchange exchange) {
+        log.error("Insufficient balance: {}", ex.getMessage());
+        return Mono.just(new ResponseEntity<>(errorResponse(
+                "Insufficient Balance", ex.getMessage(), "INSUFFICIENT_BALANCE",
+                HttpStatus.PAYMENT_REQUIRED.value(), null, exchange), HttpStatus.PAYMENT_REQUIRED));
+    }
+
+    @ExceptionHandler(InvalidAmountException.class)
+    public Mono<ResponseEntity<ErrorResponse>> handleInvalidAmountException(
+            InvalidAmountException ex, ServerWebExchange exchange) {
+        log.error("Invalid amount: {}", ex.getMessage());
+        return Mono.just(new ResponseEntity<>(errorResponse(
+                "Invalid Amount", ex.getMessage(), "INVALID_AMOUNT",
+                HttpStatus.BAD_REQUEST.value(), null, exchange), HttpStatus.BAD_REQUEST));
+    }
+
+    @ExceptionHandler(WalletException.class)
+    public Mono<ResponseEntity<ErrorResponse>> handleWalletException(
+            WalletException ex, ServerWebExchange exchange) {
+        log.error("Wallet exception: {}", ex.getMessage(), ex);
+        return Mono.just(new ResponseEntity<>(errorResponse(
+                "Wallet Error", ex.getMessage(), ex.getErrorCode(),
+                HttpStatus.BAD_REQUEST.value(), null, exchange), HttpStatus.BAD_REQUEST));
+    }
+
+    @ExceptionHandler(WebExchangeBindException.class)
+    public Mono<ResponseEntity<ErrorResponse>> handleValidationException(
+            WebExchangeBindException ex, ServerWebExchange exchange) {
         log.error("Validation error: {}", ex.getMessage());
-        
         StringBuilder details = new StringBuilder();
         ex.getBindingResult().getFieldErrors().forEach(error ->
-            details.append(error.getField()).append(": ").append(error.getDefaultMessage()).append("; ")
-        );
-        
-        ErrorResponse errorResponse = new ErrorResponse(
-            "Validation Failed",
-            "Request validation failed",
-            "VALIDATION_ERROR",
-            HttpStatus.BAD_REQUEST.value()
-        );
-        errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
-        errorResponse.setDetails(details.toString());
-        errorResponse.setTimestamp(LocalDateTime.now());
-        
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+                details.append(error.getField()).append(": ").append(error.getDefaultMessage()).append("; "));
+        return Mono.just(new ResponseEntity<>(errorResponse(
+                "Validation Failed", "Request validation failed", "VALIDATION_ERROR",
+                HttpStatus.BAD_REQUEST.value(), details.toString(), exchange), HttpStatus.BAD_REQUEST));
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<ErrorResponse> handleConstraintViolation(
-            ConstraintViolationException ex,
-            WebRequest request) {
+    public Mono<ResponseEntity<ErrorResponse>> handleConstraintViolation(
+            ConstraintViolationException ex, ServerWebExchange exchange) {
         log.error("Constraint violation: {}", ex.getMessage());
-
         StringBuilder details = new StringBuilder();
         ex.getConstraintViolations().forEach(v ->
-            details.append(v.getPropertyPath()).append(": ").append(v.getMessage()).append("; ")
-        );
-
-        ErrorResponse errorResponse = new ErrorResponse(
-            "Validation Failed",
-            "Request validation failed",
-            "VALIDATION_ERROR",
-            HttpStatus.BAD_REQUEST.value()
-        );
-        errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
-        errorResponse.setDetails(details.toString());
-        errorResponse.setTimestamp(LocalDateTime.now());
-
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+                details.append(v.getPropertyPath()).append(": ").append(v.getMessage()).append("; "));
+        return Mono.just(new ResponseEntity<>(errorResponse(
+                "Validation Failed", "Request validation failed", "VALIDATION_ERROR",
+                HttpStatus.BAD_REQUEST.value(), details.toString(), exchange), HttpStatus.BAD_REQUEST));
     }
 
-    /**
-     * Handle all other exceptions
-     */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGlobalException(
-            Exception ex,
-            WebRequest request) {
-        log.error("Unexpected exception occurred: {}", ex.getMessage(), ex);
-        
-        ErrorResponse errorResponse = new ErrorResponse(
-            "Internal Server Error",
-            "An unexpected error occurred",
-            "INTERNAL_SERVER_ERROR",
-            HttpStatus.INTERNAL_SERVER_ERROR.value()
-        );
-        errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
-        errorResponse.setDetails(ex.getMessage());
-        errorResponse.setTimestamp(LocalDateTime.now());
-        
-        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+    public Mono<ResponseEntity<ErrorResponse>> handleGlobalException(
+            Exception ex, ServerWebExchange exchange) {
+        log.error("Unexpected exception: {}", ex.getMessage(), ex);
+        return Mono.just(new ResponseEntity<>(errorResponse(
+                "Internal Server Error", "An unexpected error occurred", "INTERNAL_SERVER_ERROR",
+                HttpStatus.INTERNAL_SERVER_ERROR.value(), ex.getMessage(), exchange),
+                HttpStatus.INTERNAL_SERVER_ERROR));
+    }
+
+    private ErrorResponse errorResponse(String error, String message, String errorCode,
+                                        int status, String details, ServerWebExchange exchange) {
+        String path = exchange.getRequest().getPath().value();
+        ErrorResponse r = new ErrorResponse(error, message, errorCode, status);
+        r.setPath(path);
+        r.setDetails(details);
+        r.setTimestamp(LocalDateTime.now());
+        return r;
     }
 }

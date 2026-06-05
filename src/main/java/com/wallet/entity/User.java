@@ -1,28 +1,29 @@
 package com.wallet.entity;
 
-import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
+
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "users")
+@Table("users")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class User {
 
     @Id
-    @Column(name = "user_id", length = 36, updatable = false, nullable = false)
+    @Column("user_id")
     private String userId;
 
-    @CreationTimestamp
-    @Column(nullable = false, updatable = false, name = "created_at")
+    @Column("created_at")
     private LocalDateTime createdAt;
 
     public User(String userId) {
         this.userId = userId;
+        this.createdAt = LocalDateTime.now();
     }
 }

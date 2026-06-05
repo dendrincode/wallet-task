@@ -23,7 +23,7 @@ public class TransactionPageResponse {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class TransactionItem {
-        private Long transactionId;
+        private String transactionId;
         private String type;
         private BigDecimal amount;
         private String timestamp;

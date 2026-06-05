@@ -1,81 +1,61 @@
 package com.wallet.entity;
 
-import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 
-@Entity
-@Table(name = "wallets", indexes = {
-    @Index(name = "idx_wallet_user_id", columnList = "user_id", unique = true),
-    @Index(name = "idx_wallet_status", columnList = "status"),
-    @Index(name = "idx_wallet_created_at", columnList = "created_at"),
-    @Index(name = "idx_wallet_currency", columnList = "currency")
-})
+@Table("wallets")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class Wallet {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "wallet_id", length = 36, updatable = false, nullable = false)
+    @Column("wallet_id")
     private String walletId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "user_id", nullable = false, unique = true)
-    private User user;
+    @Column("user_id")
+    private String userId;
 
-    @Column(nullable = false, precision = 19, scale = 2)
+    @Column("balance")
     private BigDecimal balance = BigDecimal.ZERO;
 
-    @CreationTimestamp
-    @Column(nullable = false, updatable = false, name = "created_at")
+    @Column("created_at")
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp
-    @Column(nullable = false, name = "updated_at")
+    @Column("updated_at")
     private LocalDateTime updatedAt;
 
-    @Column(nullable = false, length = 10)
-    @Enumerated(EnumType.STRING)
+    @Column("status")
     private WalletStatus status = WalletStatus.ACTIVE;
 
-    @Column(nullable = false, length = 10)
-    @Enumerated(EnumType.STRING)
+    @Column("currency")
     private CurrencyType currency = CurrencyType.EUR;
 
-    @Column(nullable = false, precision = 19, scale = 2)
+    @Column("total_deposited")
     private BigDecimal totalDeposited = BigDecimal.ZERO;
 
-    @Column(nullable = false, precision = 19, scale = 2)
+    @Column("total_traded")
     private BigDecimal totalTraded = BigDecimal.ZERO;
 
-    @Column(name = "last_transaction_at")
+    @Column("last_transaction_at")
     private LocalDateTime lastTransactionAt;
 
-    @Column(length = 255)
+    @Column("description")
     private String description;
 
-    @Version
-    @Column(nullable = false)
-    private Long version = 0L;
-
-    @OneToMany(mappedBy = "wallet", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<Transaction> transactions;
-
-    public Wallet(User user) {
-        this.user = user;
+    public Wallet(String userId) {
+        this.userId = userId;
         this.balance = BigDecimal.ZERO;
         this.status = WalletStatus.ACTIVE;
         this.currency = CurrencyType.EUR;
         this.totalDeposited = BigDecimal.ZERO;
         this.totalTraded = BigDecimal.ZERO;
-        // walletId is assigned by Hibernate on persist
     }
 }
